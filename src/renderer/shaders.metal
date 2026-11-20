@@ -1,4 +1,8 @@
-// DSR fixed-function emulation for Dungeon Siege's Direct3D 7 usage (lighting off; 2 texture stages; vertex fog).
+// The fixed-function pipeline as Freedom Force's Direct3D 8 uses it (through runtime/win32/d3d9.c): three texture
+// stages (D3DTOP 1-16; stage 1 reads the second coordinate set, stages 0 and 2 the first), CAMERASPACEPOSITION texgen
+// (projected per pixel); vertex fog. Lighting, vertex blending and the normal / reflection-vector texgen are done on
+// the CPU before the draw (d3d9.c ff_lit, ff_blend, ff_texgen); what isn't drawn as asked is logged once
+// ("unsupported fixed-function texture state", d3d9.c ff_unsupported).
 #include <metal_stdlib>
 using namespace metal;
 

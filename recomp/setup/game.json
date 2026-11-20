@@ -1,0 +1,99 @@
+{
+  "name": "Freedom Force",
+  "folder": "Freedom Force",
+  "bundle_id": "io.github.joshspeakman.freedom-force",
+  "release_repo": "Joshspeakman/freedom-force-macos",
+  "binary": "Freedom Force",
+  "icon_label": "FF",
+  "version": "1.3",
+  "where": "Your Freedom Force folder (GOG, version 1.3)",
+  "minutes": 6,
+  "space_gb": 3,
+  "build_gb": 2,
+  "exe": "fforce.exe",
+  "exe_sha256": {
+    "75860574fbd58a7a284e76cfd986f0d73caa13010173a6fb31245771a1200475": "GOG 1.3"
+  },
+  "required": [
+    "Data",
+    "System",
+    "Standard.dll",
+    "Sound.dll",
+    "python15.dll",
+    "MSVCRT.dll",
+    "MSVCP60.dll",
+    "zlib-1.1.3.dll",
+    "Mss32.dll",
+    "System/Miles/Mssfast.m3d",
+    "System/Miles/Mp3dec.asi"
+  ],
+  "libs": [
+    {
+      "file": "Standard.dll"
+    },
+    {
+      "file": "Sound.dll",
+      "rebase": "0x11000000"
+    },
+    {
+      "file": "python15.dll"
+    },
+    {
+      "file": "MSVCRT.dll"
+    },
+    {
+      "file": "MSVCP60.dll"
+    },
+    {
+      "file": "zlib-1.1.3.dll",
+      "rebase": "0x12000000"
+    },
+    {
+      "file": "Mss32.dll"
+    },
+    {
+      "file": "System/Miles/Mssfast.m3d"
+    },
+    {
+      "file": "System/Miles/Mp3dec.asi"
+    }
+  ],
+  "tag_lowercase": true,
+  "lift_args": [
+    "--game",
+    "ff"
+  ],
+  "cc_args": [
+    "-fPIC",
+    "-DRT_TSO",
+    "-DRT_HOST_RC_INIT=UINT32_MAX"
+  ],
+  "art": "ff_art.py",
+  "art_helper": "ff_art.m",
+  "log": "FreedomForceNative",
+  "local_network": "Freedom Force hosts and joins multiplayer games on your local network.",
+  "build": "./build_ff.sh \"$GAME\" && ./tools/build_app.sh \"$PWD/work/ff\"",
+  "out": "work/ff",
+  "rt_opt": "-O1 -ffp-contract=off",
+  "rt_cflags": [
+    "-DFF_EDITION",
+    "-DRT_TSO"
+  ],
+  "host_cflags": [
+    "-DFF_EDITION",
+    "-DRT_TSO"
+  ],
+  "frameworks": [
+    "AppKit",
+    "Metal",
+    "QuartzCore",
+    "CoreText",
+    "CoreGraphics",
+    "CoreFoundation",
+    "AudioToolbox",
+    "CoreImage"
+  ],
+  "style": "bronze",
+  "title": "FREEDOM FORCE",
+  "art_url": "https://images-2.gog-statics.com/4bd54877e8d214b53d614007df92b9b2e855d5f0d8b44fd8c705df966e4b4338.jpg"
+}

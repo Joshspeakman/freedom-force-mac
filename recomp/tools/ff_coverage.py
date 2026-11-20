@@ -314,7 +314,8 @@ def run_batch(game, out, all_tests, start, end, log):
     src = DRIVER % dict(shots=py15(shots), tests=py15(all_tests), start=start, end=end, burst=BURST)
     open(os.path.join(data, 'game', 'Data', 'Missions', '01_begin', 'mission.py'), 'w', newline='\r\n').write(src)
     cmd = os.path.join(data, 'game', 'ffcov_cmd.txt'); open(cmd, 'w').close()
-    env = dict(os.environ, DS_TEST='1', W32_AUDIO_MUTE='1', DS_SCRIPT=DANGER_ROOM, DS_CMDFILE=cmd)
+    env = dict(os.environ, DS_TEST='1', W32_AUDIO_MUTE='1', DS_SCRIPT=DANGER_ROOM, DS_CMDFILE=cmd,
+               D3D9_STATELOG='1')   # each render/texture-stage state the game uses, once: the inventory for the renderer
     for k in ('DS_LAUNCHER_SHOT', 'FF_LAUNCHER_SETTINGS', 'DS_UPDATER'): env.pop(k, None)   # test mode only: never the launch window
     assert env['DS_TEST'] == '1' and env['W32_AUDIO_MUTE'] == '1'
     app = os.path.join(HERE, 'work', 'ff', 'app', 'FreedomForceNative')
@@ -446,6 +447,7 @@ def report(out, cat, all_tests, status, first, last):
             ref = s.get('base') if tag in ('idle', 'shown') else s.get('idle', base)
             o = subprocess.run([covimg, 'stats', ref or '-', s[tag]], capture_output=True, text=True).stdout.split()
             if len(o) < 4: continue
+            o = ['path'] + o[-3:]                                 # "<path> mean diff flat": the path may hold spaces
             mean, diff, flat = float(o[1]), float(o[2]), float(o[3])
             label = tag if not tag.isdigit() else (t[2][int(tag)][0] if t[0] == 'char' else t[2][int(tag)])
             c = dict(tag=tag, what=label, mean=mean, diff=diff, flat=flat)

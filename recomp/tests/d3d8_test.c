@@ -136,6 +136,46 @@ static void texcoord_index_test(uint32_t dev, uint32_t tex)
     assert(M(dev, 63, 3, 1, 1, 1) == 0 && M(dev, 61, 2, 1, 0) == 0);
 }
 
+/* D3DTSS_TCI_CAMERASPACEREFLECTIONVECTOR / _CAMERASPACENORMAL (ff_texgen in d3d9.c): the generated coordinates, through
+ * the texture transform, replace stage 0's set. World and view identity; a vertex at (3, 0, 4) facing -z reflects the
+ * eye ray (0.6, 0, 0.8) to (0.6, 0, -0.8). */
+static int near(float a, float b) { return fabsf(a - b) < 1e-5f; }
+static void texgen_test(uint32_t dev, uint32_t wm, uint32_t tex)
+{
+    const uint32_t *rec = 0; float out[10];
+    float ident[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}; memcpy(G_MEM + wm, ident, 64);
+    assert(M(dev, 37, 2, 2, wm) == 0 && M(dev, 37, 2, 256, wm) == 0);                       /* VIEW, WORLD */
+    assert(M(dev, 50, 2, 137, 0) == 0);                                                     /* LIGHTING off */
+    uint32_t up = galloc(3 * 32);
+    for (int i = 0; i < 3; i++) { float v[8] = {3, 0, 4, 0, 0, -1, 0.25f, 0.75f}; memcpy(G_MEM + up + 32 * i, v, 32); }
+    assert(M(dev, 76, 1, 0x112) == 0);                                                      /* XYZ | NORMAL | TEX1 */
+    assert(M(dev, 63, 3, 0, 11, 0x30000) == 0);                                             /* stage 0: reflection vector */
+    ring_mark(); assert(M(dev, 72, 4, 4, 1, up, 32) == 0);
+    assert(ring_count(DSR_DRAW, &rec) == 1 && rec[1] == 0x112);
+    memcpy(out, rec + 4, 32); assert(near(out[6], 0.6f) && near(out[7], 0));
+    float tm[16] = {0.5f, 0, 0, 0, 0, -0.5f, 0, 0, 0, 0, 1, 0, 0.5f, 0.5f, 0, 1}; uint32_t tmg = galloc(64); memcpy(G_MEM + tmg, tm, 64);
+    assert(M(dev, 37, 2, 16, tmg) == 0 && M(dev, 63, 3, 0, 24, 2) == 0);                    /* TEXTURE0, COUNT2 */
+    ring_mark(); assert(M(dev, 72, 4, 4, 1, up, 32) == 0);
+    assert(ring_count(DSR_DRAW, &rec) == 1); memcpy(out, rec + 4, 32); assert(near(out[6], 0.8f) && near(out[7], 0.5f));
+    assert(M(dev, 63, 3, 0, 11, 0x10000) == 0);                                             /* camera-space normal */
+    ring_mark(); assert(M(dev, 72, 4, 4, 1, up, 32) == 0);
+    assert(ring_count(DSR_DRAW, &rec) == 1); memcpy(out, rec + 4, 32); assert(near(out[6], 0.5f) && near(out[7], 0.5f));
+    assert(M(dev, 63, 3, 0, 24, 0) == 0 && M(dev, 63, 3, 0, 11, 0x30000) == 0);
+    assert(M(dev, 76, 1, 0x12) == 0);                                                       /* no set of its own: one is added */
+    ring_mark(); assert(M(dev, 72, 4, 4, 1, up, 32) == 0);
+    assert(ring_count(DSR_DRAW, &rec) == 1 && rec[1] == 0x112); memcpy(out, rec + 4, 32); assert(near(out[6], 0.6f) && near(out[7], 0));
+    assert(M(dev, 76, 1, 0x112) == 0);                                                      /* stage 1 on, one set: kept as the second */
+    assert(M(dev, 61, 2, 1, tex) == 0 && M(dev, 63, 3, 1, 1, 4) == 0);
+    ring_mark(); assert(M(dev, 72, 4, 4, 1, up, 32) == 0);
+    assert(ring_count(DSR_DRAW, &rec) == 1 && rec[1] == 0x212); memcpy(out, rec + 4, 40);
+    assert(near(out[6], 0.6f) && near(out[7], 0) && out[8] == 0.25f);
+    { float o9; memcpy(&o9, (const uint8_t *)(rec + 4) + 36, 4); assert(o9 == 0.75f); }
+    assert(M(dev, 63, 3, 1, 1, 1) == 0 && M(dev, 61, 2, 1, 0) == 0);
+    assert(M(dev, 63, 3, 0, 11, 0) == 0 && M(dev, 76, 1, 0x112) == 0);                      /* TCI 0: the vertex's own */
+    ring_mark(); assert(M(dev, 72, 4, 4, 1, up, 32) == 0);
+    assert(ring_count(DSR_DRAW, &rec) == 1); memcpy(out, rec + 4, 32); assert(out[6] == 0.25f && out[7] == 0.75f);
+}
+
 int main(void)
 {
     setenv("DSR_FPSCAP", "0", 1);
@@ -279,6 +319,7 @@ int main(void)
 
     blending_test(dev);
     texcoord_index_test(dev, tex);
+    texgen_test(dev, wm, tex);
 
     /* image surfaces and CopyRects */
     uint32_t ap = galloc(4), bp = galloc(4);

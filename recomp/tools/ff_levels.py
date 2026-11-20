@@ -145,7 +145,8 @@ def run_map(game, out, z, name, files, log):
     shots = os.path.join(out, 'shots'); os.makedirs(shots, exist_ok=True)
     open(os.path.join(slot, 'mission.py'), 'w', newline='\r\n').write(DRIVER % dict(shots=cov.py15(shots), map=cov.py15(name), stops=STOPS, trace=TRACE, at=AT))
     cmd = os.path.join(data, 'game', 'ffcov_cmd.txt'); open(cmd, 'w').close()
-    env = dict(os.environ, DS_TEST='1', W32_AUDIO_MUTE='1', DS_SCRIPT=cov.DANGER_ROOM, DS_CMDFILE=cmd)
+    env = dict(os.environ, DS_TEST='1', W32_AUDIO_MUTE='1', DS_SCRIPT=cov.DANGER_ROOM, DS_CMDFILE=cmd,
+               D3D9_STATELOG='1')   # each render/texture-stage state the game uses, once: the inventory for the renderer
     if TRACE >= 0: env['D3D9_DRAWTRACE_ON'] = os.path.join(data, 'game', 'trace_on')
     for k in ('DS_LAUNCHER_SHOT', 'FF_LAUNCHER_SETTINGS', 'DS_UPDATER'): env.pop(k, None)
     assert env['DS_TEST'] == '1' and env['W32_AUDIO_MUTE'] == '1'
@@ -204,6 +205,7 @@ def report(out, all_maps):
         flags = []
         for f in frames:
             o = subprocess.run([covimg, 'stats', '-', os.path.join(shots, f)], capture_output=True, text=True).stdout.split()
+            o = ['path'] + o[-3:] if len(o) >= 4 else o          # "<path> mean diff flat": the path may hold spaces
             if len(o) >= 4 and float(o[1]) < 6: flags.append('%s black' % f)
             elif len(o) >= 4 and float(o[3]) > 0.9: flags.append('%s one colour' % f)
             items.append('%s=%s' % (f[:-4], os.path.join(shots, f)))

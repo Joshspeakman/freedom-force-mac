@@ -47,8 +47,9 @@ unsupported), then:
   `dp8proto.c`), Winsock. Direct3D 8 (`d3d8.c`): Direct3D 8's vtables over the Direct3D 9 objects, with adapters
   where the two versions differ (`D3D8_LOG=1` logs them; `D3D8_SHADERS=1` reports vertex and pixel shader support,
   off by default so that the engine takes its fixed-function paths).
-- `host/main.m` and `host/launcher.m`: the Mac host and (still Dungeon Siege II's) launch window. `../src/renderer`: the
-  Metal renderer. `host/linux.c`: the Linux host.
+- `host/main.m`: the Mac host; `host/ff_launcher.m`: Freedom Force's launch window (`tools/build_app.sh` picks it for
+  `FF_EDITION`). `host/launcher.m` is the other ports' launch window, kept for merges (only syntax-checked here, by
+  `tests/check_macos.sh`). `../src/renderer`: the Metal renderer. `host/linux.c`: the Linux host.
 - `third_party/`: MojoShader and minimp3.
 
 ## Execution model

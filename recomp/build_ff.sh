@@ -81,6 +81,6 @@ for o in "$OUT"/obj/*.o; do [[ -f "$OUT/$(basename "$o" .o).c" ]] || trash_paths
 trash_paths "$OUT/prev"; touch "$OUT/obj"
 echo "${#TODO[@]} of $(ls "$OUT"/lift_*.c "$OUT"/*_lift_*.c "$OUT/fntab.c" | wc -l | tr -d ' ') files changed"
 JOBS="${FF_BUILD_JOBS:-$(getconf _NPROCESSORS_ONLN)}"
-[[ ${#TODO[@]} -eq 0 ]] || printf '%s\n' "${TODO[@]}" | xargs -n 1 -P "$JOBS" "$HERE/tools/cc1.sh" "$OUT"
+[[ ${#TODO[@]} -eq 0 ]] || printf '%s\0' "${TODO[@]}" | xargs -0 -n 1 -P "$JOBS" "$HERE/tools/cc1.sh" "$OUT"
 echo "== $(ls "$OUT/obj" | wc -l | tr -d ' ') object files; runtime and link"
 "$HERE/tools/build_runtime.sh" "$OUT"

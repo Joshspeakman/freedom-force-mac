@@ -733,9 +733,101 @@ static const uint8_t *uv_select(Dev9 *d, const uint8_t *v, uint32_t nv, uint32_t
     }
     *fvf_io = nf; return uvsel_buf;
 }
+/* Texture coordinates the fixed-function pipeline generates from the vertex normal, done here per vertex as the
+ * lighting is (ff_lit): D3DTSS_TCI_CAMERASPACENORMAL (0x10000) and _CAMERASPACEREFLECTIONVECTOR (0x30000) on stages
+ * 0 and 1. The camera-space normal, or the reflection of the eye ray off it (reflect(normalize(P), N)), goes through
+ * the stage's texture transform as (x, y, z, 1) and into the set the renderer reads for that stage (stage 0 the
+ * first, stage 1 the second; uv_select has put them there). The shader passes generated coordinates through as they
+ * are (ttf). Freedom Force draws its reflective surfaces so on every map (stage 0, SELECTARG1 TEXTURE); before, they
+ * sampled the vertex's own coordinates. CAMERASPACEPOSITION stays in the shader (projected, per pixel). */
+static uint8_t *tg_buf; static size_t tg_cap;
+static int texgen_cpu(uint32_t tci) { tci &= 0xffff0000u; return tci == 0x10000 || tci == 0x30000; }
+static const uint8_t *ff_texgen(Dev9 *d, const uint8_t *v, uint32_t nv, uint32_t *fvf_io)
+{
+    uint32_t fvf = *fvf_io, pos = fvf & 0xe; int gen[2] = {0, 0};
+    static int no_tg = -1; if (no_tg < 0) no_tg = getenv("D3D9_NO_TEXGEN") != 0;        /* development: the old pass-through */
+    if (no_tg) return v;
+    for (int st = 0; st < 2 && d->tss[st][1] != 1; st++) gen[st] = texgen_cpu(d->tss[st][11]);
+    if ((!gen[0] && !gen[1]) || !(fvf & 0x10) || pos == 4 || !pos) return v;          /* needs normals and untransformed vertices */
+    uint32_t ps = pos == 2 ? 12 : pos == 6 ? 16 : pos == 8 ? 20 : pos == 0xa ? 24 : pos == 0xc ? 28 : 32;
+    uint32_t n = (fvf >> 8) & 0xf, nn = gen[1] ? (n > 2 ? n : 2) : (n > 1 ? n : 1);
+    /* stage 1 reads the second set, or the first when there is only one: with stage 0's replaced, a vertex of one set
+     * keeps it as the second for an active stage 1 */
+    int keep1 = gen[0] && !gen[1] && n == 1 && d->tss[0][1] != 1 && d->tss[1][1] != 1; if (keep1) nn = 2;
+    uint32_t base = fvf_stride(fvf & ~0xffff0f00u), off[8], size[8], fmt[8], o = base;
+    for (uint32_t k = 0; k < n; k++) { fmt[k] = (fvf >> (16 + 2 * k)) & 3; size[k] = fmt[k] == 0 ? 8 : fmt[k] == 1 ? 12 : fmt[k] == 2 ? 16 : 4; off[k] = o; o += size[k]; }
+    uint32_t nf = (fvf & ~0xffff0f00u) | nn << 8;                                 /* generated sets are two floats */
+    for (uint32_t k = 0; k < nn; k++) nf |= ((k < n && !(k < 2 && gen[k])) ? fmt[k] : keep1 && k == 1 ? fmt[0] : 0) << (16 + 2 * k);
+    uint32_t ss = fvf_stride(fvf), ns = fvf_stride(nf);
+    if ((size_t)ns * nv > tg_cap) { tg_cap = (size_t)ns * nv + ((size_t)ns * nv) / 2; tg_buf = realloc(tg_buf, tg_cap); }
+    const float *W = d->ff_world_space ? ff_identity : d->xf[256], *V = d->xf[2]; float WV[16];
+    for (int i = 0; i < 4; i++) for (int j = 0; j < 4; j++) WV[4 * i + j] = W[4 * i] * V[j] + W[4 * i + 1] * V[4 + j] + W[4 * i + 2] * V[8 + j] + W[4 * i + 3] * V[12 + j];
+    for (uint32_t i = 0; i < nv; i++) {
+        const uint8_t *src = v + (size_t)i * ss; uint8_t *dst = tg_buf + (size_t)i * ns;
+        memcpy(dst, src, base);
+        float x[3], nr[3], P[3], N[3]; memcpy(x, src, 12); memcpy(nr, src + ps, 12);
+        for (int k = 0; k < 3; k++) { P[k] = x[0] * WV[k] + x[1] * WV[4 + k] + x[2] * WV[8 + k] + WV[12 + k]; N[k] = nr[0] * WV[k] + nr[1] * WV[4 + k] + nr[2] * WV[8 + k]; }
+        float ln = sqrtf(N[0] * N[0] + N[1] * N[1] + N[2] * N[2]), lp = sqrtf(P[0] * P[0] + P[1] * P[1] + P[2] * P[2]);
+        if (ln > 0) for (int k = 0; k < 3; k++) N[k] /= ln;
+        if (lp > 0) for (int k = 0; k < 3; k++) P[k] /= lp;
+        uint32_t w = base;
+        for (uint32_t k = 0; k < nn; k++) {
+            if (k < 2 && gen[k]) {
+                float g[3], t[4];
+                if ((d->tss[k][11] & 0xffff0000u) == 0x10000) memcpy(g, N, 12);
+                else { float pn = P[0] * N[0] + P[1] * N[1] + P[2] * N[2]; for (int c = 0; c < 3; c++) g[c] = P[c] - 2 * pn * N[c]; }
+                uint32_t fl = d->tss[k][24], count = fl & 0xff; const float *M = d->xf[16 + k]; float uv[2] = {g[0], g[1]};
+                if (count) {
+                    for (int c = 0; c < 4; c++) t[c] = g[0] * M[c] + g[1] * M[4 + c] + g[2] * M[8 + c] + M[12 + c];
+                    float q = count == 2 ? t[1] : count == 3 ? t[2] : t[3];
+                    uv[0] = t[0]; uv[1] = t[1];
+                    if ((fl & 0x100) && count >= 2 && q != 0) { uv[0] /= q; uv[1] /= q; }
+                }
+                memcpy(dst + w, uv, 8); w += 8;
+            } else if (k < n) { memcpy(dst + w, src + off[k], size[k]); w += size[k]; }
+            else if (keep1 && k == 1) { memcpy(dst + w, src + off[0], size[0]); w += size[0]; }
+            else { memset(dst + w, 0, 8); w += 8; }
+        }
+    }
+    *fvf_io = nf; return tg_buf;
+}
+/* What the fixed-function path (shaders.metal) does not draw as asked, said once per kind, so a level or coverage tour
+ * lists it ("unsupported" is in the harnesses' warning words): an op above BLENDCURRENTALPHA (16), a SPECULAR or
+ * CONSTANT argument (drawn as DIFFUSE), texgen other than CAMERASPACEPOSITION (and, with normals on stages 0 and 1,
+ * ff_texgen's two), a stage past the last one evaluated, stage 2 taking another coordinate set than stage 0's (it
+ * reads stage 0's). */
+#define FF_STAGES 3
+static void ff_unsupported(Dev9 *d, uint32_t fvf)
+{
+    static uint32_t warned;
+    for (int st = 0; st < 8 && d->tss[st][1] != 1; st++) {        /* up to the first disabled stage (D3DTOP_DISABLE) */
+        uint32_t op = d->tss[st][1], aop = d->tss[st][4], tci = d->tss[st][11] & 0xffff0000u, bad = 0;
+        if (op > 16 || aop > 16) bad |= 1;
+        if (st >= FF_STAGES) bad |= 2;
+        /* (texgen on a stage that doesn't sample its texture, as SELECTARG2 of DIFFUSE: nothing to draw differently) */
+        int samples = 0; uint32_t aop2 = d->tss[st][4];
+        if (op != 3 && (d->tss[st][2] & 0xf) == 2) samples = 1;
+        if (op != 2 && (d->tss[st][3] & 0xf) == 2) samples = 1;
+        if (aop2 != 1 && aop2 != 3 && (d->tss[st][5] & 0xf) == 2) samples = 1;
+        if (aop2 != 1 && aop2 != 2 && (d->tss[st][6] & 0xf) == 2) samples = 1;
+        if (op == 13 || op == 15 || aop2 == 13 || aop2 == 15) samples = 1;
+        if (samples && tci && tci != 0x20000 && !(st < 2 && texgen_cpu(tci) && (fvf & 0x10) && (fvf & 0xe) != 4)) bad |= 4;
+        for (int a = 2; a <= 6; a++) if (a != 4 && ((d->tss[st][a] & 0xf) == 4 || (d->tss[st][a] & 0xf) == 6)) bad |= 8;
+        if (st == 2 && d->tex[2] && (d->tss[2][11] & 0xffff) != (d->tss[0][11] & 0xffff)) bad |= 16;   /* stage 2 reads stage 0's set */
+        bad &= ~warned;
+        if (bad) {
+            warned |= bad;
+            fprintf(stderr, "d3d9: unsupported fixed-function texture state (%s%s%s%s%s): stage %d op %u/%u args %x %x / %x %x tci %x (drawn with a substitute)\n",
+                    bad & 1 ? "op" : "", bad & 2 ? " stage" : "", bad & 4 ? " texgen" : "", bad & 8 ? " arg" : "", bad & 16 ? " coordinate set" : "",
+                    st, op, aop, d->tss[st][2], d->tss[st][3], d->tss[st][5], d->tss[st][6], d->tss[st][11]);
+        }
+    }
+}
 static void emit(Dev9 *d, uint32_t prim, uint32_t fvf, const uint8_t *v, uint32_t nv, const uint16_t *idx, uint32_t ni)
 {
+    ff_unsupported(d, fvf);
     v = uv_select(d, v, nv, &fvf);
+    v = ff_texgen(d, v, nv, &fvf);
     uint32_t st = fvf_stride(fvf);
     if ((uint64_t)st * nv + (uint64_t)ni * 2 > (16u << 20)) { static int w; if (!w++) fprintf(stderr, "d3d9: a draw too large for the command ring (skipped)\n"); return; }
     if (d->ff_world_space) { uint32_t *t = cmd_begin(DSR_TRANSFORM, 68); t[0] = 1; memcpy(t+1, ff_identity, 64); cmd_end(); }
@@ -1043,14 +1135,18 @@ static int draw_skipped(void)
     return skip_lo >= 0 && (int)k >= skip_lo && (int)k <= skip_hi;
 }
 /* development: D3D9_DRAWTINT=a-b draws each frame's draws a to b flat magenta (fixed function: stage 0 the texture
- * factor, the later stages off), to see where they land */
-static int tint_lo = -2, tint_hi; static uint32_t tint_saved[6]; static int tinting;
+ * factor, the later stages off), to see where they land; D3D9_DRAWTINT_TEXGEN=1 every draw whose stage 0 or 1
+ * generates normal or reflection coordinates (ff_texgen) */
+static int tint_lo = -2, tint_hi, tint_tg = -1; static uint32_t tint_saved[6]; static int tinting;
 static void draw_tint(Dev9 *d, int begin)
 {
     if (tint_lo == -2) { const char *e = getenv("D3D9_DRAWTINT"); tint_lo = -1; if (e && sscanf(e, "%d-%d", &tint_lo, &tint_hi) != 2) tint_lo = -1; }
-    if (tint_lo < 0 || d->vs || d->ps) return;
+    if (tint_tg < 0) tint_tg = getenv("D3D9_DRAWTINT_TEXGEN") != 0;
+    if ((tint_lo < 0 && !tint_tg) || d->vs || d->ps) return;
     if (begin) {
-        int k = (int)frame_draw - 1; if (k < tint_lo || k > tint_hi) return;    /* (frame_draw has counted this draw) */
+        int k = (int)frame_draw - 1;                                              /* (frame_draw has counted this draw) */
+        int tg = tint_tg && ((d->tss[0][1] != 1 && texgen_cpu(d->tss[0][11])) || (d->tss[0][1] != 1 && d->tss[1][1] != 1 && texgen_cpu(d->tss[1][11])));
+        if (!tg && (tint_lo < 0 || k < tint_lo || k > tint_hi)) return;
         tinting = 1; tint_saved[0] = d->tss[0][1]; tint_saved[1] = d->tss[0][2]; tint_saved[2] = d->tss[1][1]; tint_saved[3] = d->rs[60];
         tint_saved[4] = d->rs[27]; tint_saved[5] = d->rs[15];
         set_tss(d, 0, 1, 2); set_tss(d, 0, 2, 3); set_tss(d, 1, 1, 1); set_rs(d, 60, 0xffff00ff); set_rs(d, 27, 0); set_rs(d, 15, 0);

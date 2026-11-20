@@ -21,9 +21,11 @@ Players use their own copy. GOG's comes first; Steam's comes later.
 
 ## Status and installing
 
-Not playable yet: the recompiled game builds and links, and stops at its first call into the C runtime (see
-[`docs/PLAN.md`](docs/PLAN.md)). The installer is in place for when it runs, on an Apple Silicon Mac with the Xcode
-command line tools:
+Plays in test mode on an Apple Silicon Mac: a new campaign reaches mission 1 and plays, saves load, every map (68)
+loads and was toured, and the coverage test runs every character, power, state and effect without a crash. Not yet
+checked on screen: real full screen and the notch, the Retina cursor, listening to the sound, a whole campaign. The
+log is [`docs/PLAN.md`](docs/PLAN.md)'s "Done so far"; it is the status, not this paragraph. Installing needs the
+Xcode command line tools:
 
 ```sh
 ./install.sh --gog-installer "setup_freedom_force_1.3_(19478).exe"   # GOG's offline installer (brew install innoextract)

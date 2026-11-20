@@ -1,5 +1,5 @@
 #!/bin/bash
-# install.sh --game-dir <Freedom Force folder> [--app-dir DIR] [--data-dir DIR]
+# install.sh --game-dir <Freedom Force folder> [--app-dir DIR] [--data-dir DIR] [--in-place]
 # install.sh --gog-installer <setup_freedom_force_*.exe>   (GOG offline installer; needs: brew install innoextract)
 # install.sh --nightly                 installs "Freedom Force Nightly.app" next to the stable app: the newest
 #                                      experimental work (the repository's nightly branch, fetched from GitHub and
@@ -17,7 +17,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 GAME=""; GOG_EXE=""; APPS="$HOME/Applications"; DATA="$HOME/Games/FreedomForceNative"
 NIGHTLY=""; AS_NIGHTLY=""; ARGS=()
+IN_PLACE=""
 while [ $# -gt 0 ]; do
+  case "$1" in --in-place) IN_PLACE=1; ARGS+=("$1"); shift; continue;; esac
   case "$1" in --nightly) NIGHTLY=1; shift; continue;; --as-nightly) AS_NIGHTLY=1; shift; continue;; esac
   ARGS+=("$1"); [ $# -gt 1 ] && case "$1" in --*) case "$2" in --*) ;; *) ARGS+=("$2");; esac;; esac
   case "$1" in
@@ -92,6 +94,19 @@ if python3 -I "$HERE/recomp/tools/ff_art.py" "$GAME" "$T/src" && clang -fobjc-ar
    && "$T/ff_art" "$T/src" "$DATA/art"; then cp -R "$DATA/art" "$A/Contents/Resources/art"
 else echo "   (no art: the launch window draws its title)"; fi
 rm -rf "$T"
+# The game is copied into the data folder (game-files) and the app reads it from there, so the folder it was installed
+# from is no longer needed and can be deleted. On a Mac the copy is an APFS clone: it takes no extra space. Updates and
+# reinstalls keep using the copy. --in-place reads the given folder instead (nothing is copied).
+if [ -z "$IN_PLACE" ]; then case "$GAME/" in "$DATA"/*) ;; *)
+  GF="$DATA/game-files"; echo "== copying the game from $GAME into $GF"
+  mkdir -p "$DATA"; rm -rf "$GF.part"
+  if [ "$(uname -s)" = Darwin ]; then cp -cRL "$GAME" "$GF.part" 2>/dev/null || { rm -rf "$GF.part"; cp -RL "$GAME" "$GF.part"; }
+  else cp -RL --reflink=auto "$GAME" "$GF.part"; fi
+  rm -rf "$GF"; mv "$GF.part" "$GF"
+  echo "== the app reads the game from $GF: $GAME is no longer needed (delete it to free the space)"; GAME="$GF";;
+esac; fi
+mkdir -p "$DATA" "$APPS"; DATA="$(cd "$DATA" && pwd)"; APPS="$(cd "$APPS" && pwd)"; GAME="$(cd "$GAME" && pwd)"   # the updater keeps these, from any working directory
+Q_APPS=$(printf '%q' "$APPS")
 Q_GAME=$(printf '%q' "$GAME"); Q_DATA=$(printf '%q' "$DATA")      # shell-quoted: any folder name is only data
 # updates from the launcher: the branch this app follows (main, or nightly for Nightly), the commit it was built from and
 # the checkout it was installed from; its updater fetches the branch into a worktree there and rebuilds the app from it
@@ -106,6 +121,9 @@ if [ -n "$U_REPO" ] && [ -n "$U_BUILT" ] && git -C "$U_REPO" remote get-url orig
 set -euo pipefail
 REPO=$(printf '%q' "$U_REPO"); BRANCH=$U_BRANCH; W="\$REPO/build/$U_DIR"
 export GIT_TERMINAL_PROMPT=0                              # never wait for a password prompt
+# a private repository: the token of its owner's gh login (git's gh credential helper reads GH_TOKEN), whichever gh account is active
+OWNER="\$(git -C "\$REPO" remote get-url origin | sed -E 's#.*github.com[:/]([^/]+)/.*#\1#')"
+[ -n "\${GH_TOKEN:-}" ] || GH_TOKEN="\$(PATH="/opt/homebrew/bin:/usr/local/bin:\$PATH" gh auth token --user "\$OWNER" 2>/dev/null || true)"; [ -z "\$GH_TOKEN" ] || export GH_TOKEN
 if [ "\${1:-}" = --check ]; then git -C "\$REPO" ls-remote origin "refs/heads/\$BRANCH" | cut -f1; exit 0; fi
 echo "== fetching \$BRANCH from GitHub"
 git -C "\$REPO" fetch -q origin "\$BRANCH"
@@ -114,7 +132,7 @@ if [ -e "\$W/.git" ]; then git -C "\$W" checkout -q -f --detach "origin/\$BRANCH
 else mkdir -p "\$REPO/build"; git -C "\$REPO" worktree add -q -f --detach "\$W" "origin/\$BRANCH"; fi
 echo "== \$BRANCH: \$(git -C "\$W" log -1 --format='%h %s')"
 [ -e "\$W/recomp/.venv" ] || [ ! -d "\$REPO/recomp/.venv" ] || ln -s "\$REPO/recomp/.venv" "\$W/recomp/.venv"   # share the tools
-exec "\$W/install.sh"$( [ -n "$AS_NIGHTLY" ] && echo " --as-nightly" )
+exec "\$W/install.sh" --game-dir $Q_GAME --data-dir $Q_DATA --app-dir $Q_APPS $( [ -n "$IN_PLACE" ] && echo "--in-place" )$( [ -n "$AS_NIGHTLY" ] && echo " --as-nightly" )
 UPDATE
   chmod +x "$A/Contents/MacOS/update"
 fi
