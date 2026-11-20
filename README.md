@@ -1,5 +1,7 @@
 # Freedom Force for macOS (native Metal port)
 
+![Freedom Force, native on Apple Silicon](media/hero.jpg)
+
 > This repository holds no game files. You need your own copy of *Freedom Force* (GOG 1.3); the build reads it from
 > your game folder and checks it against [`game/MANIFEST.txt`](game/MANIFEST.txt).
 
@@ -18,6 +20,13 @@ Players use their own copy. GOG's comes first; Steam's comes later.
 - `game/MANIFEST.txt`: every file the GOG 1.3 installer (build 19478) installs, with its hash and size. The recompiler
   reads `fforce.exe`, the game's own `Standard.dll` and `Sound.dll`, and `python15.dll` from your game folder
   (`recomp/build_ff.sh "/path/to/Freedom Force"`), and checks each against this list.
+
+## Screenshots
+
+| | |
+|---|---|
+| ![The launch window](media/screenshots/screenshot-launcher.png) | ![Park](media/screenshots/screenshot-01-park.jpg) |
+| ![Park fight](media/screenshots/screenshot-02-park-fight.jpg) |  |
 
 ## Status and installing
 
